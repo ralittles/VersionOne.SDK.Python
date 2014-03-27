@@ -168,7 +168,7 @@ class BaseAsset(object):
   def _v1_commit(self):
     'Commits the object to the server and invalidates its sync state'
     if self._v1_needs_commit:
-      self._v1_v1meta.update_asset(self._v1_asset_type_name, self._v1_oid, self._v1_new_data)
+      self._v1_v1meta.update_asset(self._v1_asset_type_name, self._v1_oid, self._v1_new_data, self._v1_current_data)
       self._v1_needs_commit = False
       self._v1_new_data = {}
       self._v1_current_data = {}
