@@ -7,7 +7,6 @@ except ImportError:
 
 from .client import *
 from .base_asset import BaseAsset
-from .cache_decorator import memoized
 from .special_class_methods import special_classes
 from .none_deref import NoneDeref
 from .string_utils import split_attribute
@@ -19,7 +18,6 @@ class V1Meta(object):
     self.server = V1Server(*args, **kw)
     self.global_cache = {}
     self.dirtylist = []
-    #self._memoized_data = {}
 
   def __getattr__(self, attr):
     "Dynamically build asset type classes when someone tries to get attrs "
@@ -30,14 +28,10 @@ class V1Meta(object):
     return self
 
   def __exit__(self, *args, **kw):
-    self.clear_memoized_cache()
+    self.asset_class.cache_clear()
     self.commit()
 
-  def clear_memoized_cache(self):
-      """Clears the memoization cache produced by the @memoized decorator"""
-      self._memoized_data={}
 
-  #@memoized # from .cache_decorator
   @functools.lru_cache(maxsize=512, typed=False)
   def asset_class(self, asset_type_name):
     xmldata = self.server.get_meta_xml(asset_type_name)
@@ -96,7 +90,6 @@ class V1Meta(object):
     # are a few triggers to do this, it's best to clear our memoization cache for
     # query responses as soon as we have something that can get flushed rather than
     # waiting for it to actually be flushed
-    #self.clear_memoized_cache()
     self.asset_class.cache_clear()
     self.dirtylist.append(asset_instance)
 
@@ -105,7 +98,6 @@ class V1Meta(object):
       # we're flushing changes, make sure our memoization cache is cleared so the updates
       # are re-queried
       if self.dirtylist:
-          #self.clear_memoized_cache()
           self.asset_class.cache_clear()
       for asset in self.dirtylist:
           try:
