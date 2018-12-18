@@ -159,7 +159,6 @@ class TestV1Query(test_common_setup.TestV1CommonSetup):
 
             # make a search term that's just one character shorter
             searchName = createdStory.Name[:-1]
-            #self.addDetail('search-name', text_content(searchName))
 
         with common_test_server.PublicTestServerConnection.getV1Meta() as v1find:
             findItems = None
@@ -168,8 +167,6 @@ class TestV1Query(test_common_setup.TestV1CommonSetup):
             firstName = ""
             try:
                 findItems = v1find.Story.select('Name').find(text=searchName, field='Name')
-                #import pdb
-                #pdb.set_trace()
                 findItem = findItems.first() #actually run the query
                 size = len(findItems)
                 firstName = findItem.Name
