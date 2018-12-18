@@ -1,7 +1,5 @@
-#from testtools import TestCase
-
 import v1pysdk
-import common_test_server #import PublicTestServerConnection
+import common_test_server
 from test_common_setup import TestV1CommonSetup
 
 class TestV1Create(TestV1CommonSetup):

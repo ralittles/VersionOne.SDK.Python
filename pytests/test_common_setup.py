@@ -1,10 +1,3 @@
-
-"""
-from testtools import TestCase
-from testtools.assertions import assert_that
-from testtools.content import text_content
-from testtools.matchers import Equals, GreaterThan
-"""
 import math
 
 import pytest

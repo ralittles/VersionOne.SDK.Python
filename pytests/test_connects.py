@@ -1,9 +1,3 @@
-"""
-from testtools import TestCase
-from testtools.assertions import assert_that
-from testtools.matchers import Equals
-#from testtools.content import text_content
-"""
 import sys
 if sys.version_info >= (3,0):
     from urllib.error import HTTPError

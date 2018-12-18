@@ -8,7 +8,6 @@ from testtools.matchers import Equals
 import v1pysdk
 from common_test_server import PublicTestServerConnection
 import common_test_server
-#from common_test_setup import TestV1CommonSetup
 import test_common_setup
 import pytest
 
