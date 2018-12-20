@@ -1,5 +1,10 @@
 import sys
 
+if (sys.version_info < (3,0)):
+  from repoze.lru import lru_cache
+
+else:
+  from functools import lru_cache
 try:
     from xml.etree import ElementTree
 except ImportError:
@@ -10,8 +15,6 @@ from .base_asset import BaseAsset
 from .special_class_methods import special_classes
 from .none_deref import NoneDeref
 from .string_utils import split_attribute
-
-import functools
 
 class V1Meta(object):
   def __init__(self, *args, **kw):
@@ -28,11 +31,15 @@ class V1Meta(object):
     return self
 
   def __exit__(self, *args, **kw):
-    self.asset_class.cache_clear()
+    if (sys.version_info > (3, 0)):
+      self.asset_class.cache_clear()
+    else:
+      self.assert_class.clear()
+
     self.commit()
 
 
-  @functools.lru_cache(maxsize=512, typed=False)
+  @lru_cache(maxsize=512)
   def asset_class(self, asset_type_name):
     xmldata = self.server.get_meta_xml(asset_type_name)
     class_members = {
