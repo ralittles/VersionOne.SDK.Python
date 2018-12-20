@@ -5,7 +5,8 @@ import sys
 from setuptools import setup
 
 install_requires = [
-    'future'
+    'future',
+    'oauth2client'
 ]
 
 if (sys.version_info < (3,0)):
@@ -59,6 +60,7 @@ setup(
 
   tests_require = [
       'testtools',
+      'oauth2client',
       'unittest2' # so testtools tests are auto-discovered
   ],
   test_suite = "tests",

@@ -2,6 +2,9 @@
 import logging, time, base64
 
 import sys
+import httplib2
+import oauth2client
+
 if (sys.version_info < (3,0)):
     #Python2 way of doing this
     import urllib2 as theUrlLib  #must be a name matching the Python3 urllib.request
@@ -66,11 +69,22 @@ class V1Error(Exception):
 class V1AssetNotFoundError(V1Error):
     pass
 
+class V1Oauth2Error(V1Error):
+    pass
+
+class V1Oauth2CredentialsError(V1Oauth2Error):
+    pass
+
+class V1Oauth2ClientSecretsError(V1Oauth2Error):
+    pass
+
+
 
 class V1Server(object):
   "Accesses a V1 HTTP server as a client of the XML API protocol"
+  OAUTH_PATH = "/rest-1.oauth.v1/"
 
-  def __init__(self, address="localhost", instance="VersionOne.Web", username='', password='', scheme="https", instance_url=None, logparent=None, loglevel=logging.ERROR, use_password_as_token=False):
+  def __init__(self, address="localhost", instance="VersionOne.Web", username='', password='', scheme="https", instance_url=None, logparent=None, loglevel=logging.ERROR, use_password_as_token=False, use_oauth_login=False,client_secrets_file="client_secrets.json", stored_credentials_file="stored_credentials.json"):
     if instance_url:
       self.instance_url = instance_url
       parsed = urlparse(instance_url)
@@ -89,10 +103,18 @@ class V1Server(object):
     logname = "%s.%s" % (logparent, modulelogname) if logparent else None
     self.logger = logging.getLogger(logname)
     self.logger.setLevel(loglevel)
-    self.username = username
-    self.password = password
-    self.use_password_as_token = use_password_as_token
-    self._install_opener()
+
+    self.use_oauth_login = use_oauth_login
+
+    if use_oauth_login == False:
+        self.username = username
+        self.password = password
+        self.use_password_as_token = use_password_as_token
+        self._install_opener()
+
+    else:
+        self.client_secrets_file = client_secrets_file
+        self.stored_credentials_file = stored_credentials_file
 
   def _install_opener(self):
     base_url = self.build_url('')
@@ -104,24 +126,54 @@ class V1Server(object):
         self.opener.addheaders.append(('Authorization', 'Bearer ' + self.password))
     self.opener.add_handler(HTTPCookieProcessor())
 
+  def _install_oauth_opener(self):
+      self.credentials_storage = oauth2client.file.Storage(self.stored_credentials_file)
+
+      try:
+          # see: https://developers.google.com/api-client-library/python/auth/installed-app
+          self.flow = oauth2client.client.flow_from_clientsecrets(self.client_secrets_file,
+                                                                  scope='apiv1',
+                                                                  redirect_uri='urn:ietf:wg:oauth:2.0:oob')
+      except oauth2client.clientsecrets.InvalidClientSecretsError:
+          raise V1Oauth2ClientSecretsError("You tried using OAuth2 authorization but you did not provide a valid client secrest file.")
+
+      self.http_client = httplib2.Http()
+      credentials_object = self.credentials_storage.get()
+
+      if not credentials_object:
+          raise V1Oauth2CredentialsError("ClientSecrets file was found, but stored client credentials were not found or invalid.")
+
+      credentials_object.authorize(self.http_client)
+
+
   def http_get(self, url):
-    request = Request(url)
-    request.add_header("Content-Type", "text/xml;charset=UTF-8")
-    response = self.opener.open(request)
-    return response
+    if self.use_oauth_login == False:
+        request = Request(url)
+        request.add_header("Content-Type", "text/xml;charset=UTF-8")
+        response = self.opener.open(request)
+        return response
+
+    else:
+        return self.http_client.request(url, "GET")
+
 
   def http_post(self, url, data=''):
-    encodedData=data
-    #encode to byte data as is needed if  it's a string
-    if isinstance(data, str):
-        encodedData=data.encode('utf-8')
-    request = Request(url, encodedData)
-    request.add_header("Content-Type", "text/xml;charset=UTF-8")
-    response = self.opener.open(request)
-    return response
+    if self.use_oauth_login == False:
+        encodedData=data
+        #encode to byte data as is needed if  it's a string
+        if isinstance(data, str):
+            encodedData=data.encode('utf-8')
+        request = Request(url, encodedData)
+        request.add_header("Content-Type", "text/xml;charset=UTF-8")
+        response = self.opener.open(request)
+        return response
+
+    else:
+        return self.http_client.request(url, 'POST', body=data)
+
 
   def build_url(self, path, query='', fragment='', params=''):
-    "So we dont have to interpolate urls ad-hoc"
+    #"So we dont have to interpolate urls ad-hoc"
     path = self.instance + '/' + path.strip('/')
     if isinstance(query, dict):
       query = urlencode(query)
@@ -149,25 +201,43 @@ class V1Server(object):
     "Perform an HTTP GET or POST depending on whether postdata is present"
     url = self.build_url(path, query=query)
     self.logger.debug("URL: %s" % url)
-    try:
-      if postdata is not None:
-          if isinstance(postdata, dict):
-              postdata = urlencode(postdata)
-              self.logger.debug("postdata: %s" % postdata)
-          response = self.http_post(url, postdata)
-      else:
-        response = self.http_get(url)
-      body = response.read()
-      self._debug_headers(response.headers)
-      self._debug_body(body, response.headers)
-      return (None, body)
-    except HTTPError as e:
-      if e.code == 401:
-          raise
-      body = e.fp.read()
-      self._debug_headers(e.headers)
-      self._debug_body(body, e.headers)
-      return (e, body)
+    if self.use_oauth_login == False:
+        try:
+          if postdata is not None:
+              if isinstance(postdata, dict):
+                  postdata = urlencode(postdata)
+                  self.logger.debug("postdata: %s" % postdata)
+              response = self.http_post(url, postdata)
+          else:
+            response = self.http_get(url)
+          body = response.read()
+          self._debug_headers(response.headers)
+          self._debug_body(body, response.headers)
+          return (None, body)
+        except HTTPError as e:
+          if e.code == 401:
+              raise
+          body = e.fp.read()
+          self._debug_headers(e.headers)
+          self._debug_body(body, e.headers)
+          return (e, body)
+
+    else:
+        if postdata is not None:
+            # Refactor this
+            is_postdata_dict = False
+            if isinstance(postdata, dict):
+                encoded_post_data = urlencode(postdata)
+                is_postdata_dict = True
+
+            if is_postdata_dict == True:
+                return self.http_post(url, encoded_post_data)
+
+            else:
+                return self.http_post(url, postdata)
+
+        else:
+            return self.http_get(url)
 
   def handle_non_xml_response(self, body, exception, msg, postdata):
       if exception.code >= 500:
@@ -200,11 +270,19 @@ class V1Server(object):
     return document
 
   def get_asset_xml(self, asset_type_name, oid):
-    path = '/rest-1.v1/Data/{0}/{1}'.format(asset_type_name, oid)
+    # refactor this
+    if (self.use_oauth_login == False):
+        path = '/rest-1.v1/Data/{0}/{1}'.format(asset_type_name, oid)
+    else:
+        path = "{0}/Data/{1}{2}".format(self.OAUTH_PATH, asset_type_name, oid)
     return self.get_xml(path)
 
   def get_query_xml(self, asset_type_name, where=None, sel=None):
-    path = '/rest-1.v1/Data/{0}'.format(asset_type_name)
+    if (self.use_oauth_login == False):
+        path = '/rest-1.v1/Data/{0}'.format(asset_type_name)
+
+    else:
+        path = "{0}/Data/{1}".format(self.OAUTH_PATH, asset_type_name)
     query = {}
     if where is not None:
         query['Where'] = where
@@ -217,12 +295,18 @@ class V1Server(object):
     return self.get_xml(path)
 
   def execute_operation(self, asset_type_name, oid, opname):
-    path = '/rest-1.v1/Data/{0}/{1}'.format(asset_type_name, oid)
+    if (self.use_oauth_login == False):
+        path = '/rest-1.v1/Data/{0}/{1}'.format(asset_type_name, oid)
+    else:
+        path = "{0}/Data/{1}/{2}".format(self.OAUTH_PATH, asset_type_name, oid)
     query = {'op': opname}
     return self.get_xml(path, query=query, postdata={})
 
   def get_attr(self, asset_type_name, oid, attrname):
-    path = '/rest-1.v1/Data/{0}/{1}/{2}'.format(asset_type_name, oid, attrname)
+    if (self.use_oauth_login == False):
+        path = '/rest-1.v1/Data/{0}/{1}/{2}'.format(asset_type_name, oid, attrname)
+    else:
+        path = "{0}/Data/{1}/{2}/{3}".format(self.OAUTH_PATH, asset_type_name, oid, attrname)
     return self.get_xml(path)
 
   def create_asset(self, asset_type_name, xmldata, context_oid=''):
@@ -230,12 +314,18 @@ class V1Server(object):
     query = {}
     if context_oid:
       query = {'ctx': context_oid}
-    path = '/rest-1.v1/Data/{0}'.format(asset_type_name)
+    if (self.use_oauth_login == False):
+        path = '/rest-1.v1/Data/{0}'.format(asset_type_name)
+    else:
+        path = "{0}/Data/{1}".format(self.OAUTH_PATH, asset_type_name)
     return self.get_xml(path, query=query, postdata=body)
 
   def update_asset(self, asset_type_name, oid, update_doc):
     newdata = ElementTree.tostring(update_doc, encoding='utf-8')
-    path = '/rest-1.v1/Data/{0}/{1}'.format(asset_type_name, oid)
+    if (self.use_oauth_login == False):
+        path = '/rest-1.v1/Data/{0}/{1}'.format(asset_type_name, oid)
+    else:
+        path = "{0}/Data/{1}/{2}".format(self.OAUTH_PATH, asset_type_name, oid)
     return self.get_xml(path, postdata=newdata)
 
 
